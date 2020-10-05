@@ -534,7 +534,7 @@ if __name__ == '__main__':
 
                 # If the creation date is in the file name then this is considered the authoritative date
                 image_time = None
-                formats = [("%Y-%m-%d_%H%M%S", 17), ("%Y-%m-%d", 10), ("%Y-%m", 7), ("IMG-%Y%m%d", 12), ("VID_%Y%m%d", 12)]
+                formats = [("%Y-%m-%d_%H%M%S", 17), ("%Y-%m-%d", 10), ("%Y-%m", 7), ("IMG_%Y%m%d_%H%M%S", 19), ("IMG-%Y%m%d", 12), ("VID_%Y%m%d", 12)]
                 for format, length in formats:
                     try:
                         image_time = datetime.strptime(file_name[:length], format)
