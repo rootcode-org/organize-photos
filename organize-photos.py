@@ -263,9 +263,10 @@ class Quicktime:
                 self.next_track_id = self.stream.read_int()
 
                 # Convert the creation time to a datetime object
-                mac_unix_epoch_diff = 2082844800        # Difference in seconds between mac and unix epoch times
-                timestamp = self.creation_time - mac_unix_epoch_diff
-                self.image_time = datetime.utcfromtimestamp(timestamp)
+                if self.creation_time != 0:
+                    mac_unix_epoch_diff = 2082844800        # Difference in seconds between mac and unix epoch times
+                    timestamp = self.creation_time - mac_unix_epoch_diff
+                    self.image_time = datetime.utcfromtimestamp(timestamp)
 
             elif atom_type == "udta":
                 # The udta type contains a list of user data types, one of which can contain the creation date
