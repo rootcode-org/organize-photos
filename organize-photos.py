@@ -23,9 +23,9 @@ class FileStream:
     LITTLE_ENDIAN = 0
     BIG_ENDIAN = 1
 
-    def __init__(self, file_name, mode):
+    def __init__(self, file_name, mode, endian=None):
         self.length = 0
-        self.endian = self.LITTLE_ENDIAN
+        self.endian = endian if endian else self.LITTLE_ENDIAN
         self.endian_stack = []
         self.handle = io.open(file_name, mode)
         self.length = os.path.getsize(file_name)
@@ -144,7 +144,6 @@ class AVI:
     def load(self, file_path):
         self.file_path = file_path
         self.stream = FileStream(file_path, "rb")
-        self.stream.set_endian(self.stream.LITTLE_ENDIAN)
         signature = self.stream.read_string(4)
         if signature != "RIFF":
             raise ValueError
@@ -188,8 +187,7 @@ class JPEG:
 
     def load(self, file_path):
         self.file_path = file_path
-        stream = FileStream(file_path, "rb")
-        stream.set_endian(stream.BIG_ENDIAN)
+        stream = FileStream(file_path, 'rb', FileStream.BIG_ENDIAN)
         while not stream.is_eof():
             marker = stream.read_u16()
 
@@ -323,8 +321,7 @@ class MP4:
 
     def load(self, url):
         self.url = url
-        self.stream = FileStream(url, 'rb')
-        self.stream.set_endian(self.stream.BIG_ENDIAN)
+        self.stream = FileStream(url, 'rb', FileStream.BIG_ENDIAN)
         self.parse(self.stream.get_length())
 
     # Parse one or more sequential atoms and try to locate image creation time
@@ -477,8 +474,7 @@ class PNG:
 
     def load(self, file_path):
         self.file_path = file_path
-        stream = FileStream(file_path, "rb")
-        stream.set_endian(stream.BIG_ENDIAN)
+        stream = FileStream(file_path, "rb", FileStream.BIG_ENDIAN)
         id1 = stream.read_u32()
         id2 = stream.read_u32()
         if id1 == 0x89504e47 and id2 == 0x0d0a1a0a:
