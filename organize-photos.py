@@ -11,10 +11,12 @@ import xml.etree.ElementTree as ET
 PURPOSE = """
 Organize photos and videos by time of creation
 
-organize-photos.py <path_to_photos> [<path_to_photos>...]
+organize-photos.py <destination_path> <source_path(s)>...
 
-Move and rename photos and videos in the specified path to organize by year, month and day of creation. If
-multiple paths are specified then photos from subsequent paths are merged into the first path. 
+Move photos and videos into a folder and rename with creation timestamp (extracted from file metadata)
+
+destination_path     folder into which files are organized
+source_path(s)       one or more folders containing files to be moved
 """
 
 
@@ -624,92 +626,110 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit(PURPOSE)
 
-    # The first path is the collection into which files from all other paths are merged
-    collection_path = os.path.expanduser(sys.argv[1]).replace('\\', '/')
-    all_paths = sys.argv[1:]        # includes collection path
-    collection_checksums = {}
+    # The first path is the destination into which files from all other paths are merged
+    destination_path = os.path.expanduser(sys.argv[1]).replace('\\', '/')
+    if not os.path.exists(destination_path):
+        sys.exit('ERROR: {0} is not a valid path'.format(destination_path))
 
-    # Merge files from all paths into collection
-    for next_path in all_paths:
+    # Checksum all files in destination folder and identify any duplicates
+    destination_checksums = {}
+    print('Calculating checksums (may take a while)...')
+    for path, folders, files in os.walk(destination_path):
+        for file_name in files:
+            file_path = os.path.join(path, file_name).replace('\\', '/')
+            with open(file_path, 'rb') as f:
+                checksum = hashlib.sha256(f.read()).digest()
+            if checksum in destination_checksums:
+                print('Duplicate found in destination: {0}'.format(file_path))
+            else:
+                destination_checksums[checksum] = file_path
+
+    # Merge files from all source paths into the destination
+    for source_path in sys.argv[2:]:
         image_files = []
-        next_path = os.path.expanduser(next_path).replace('\\', '/')
-        if not os.path.exists(next_path):
-            sys.exit('ERROR: {0} is not a valid path'.format(next_path))
-        for path, folders, files in os.walk(next_path):
+        source_path = os.path.expanduser(source_path).replace('\\', '/')
+        if not os.path.exists(source_path):
+            print('{0} is not a valid path (skipping)'.format(source_path))
+            continue
+        print('Moving files from {0}...'.format(source_path))
+        for path, folders, files in os.walk(source_path):
             for file_name in files:
-                image_path = os.path.join(path, file_name).replace('\\', '/')
+                file_path = os.path.join(path, file_name).replace('\\', '/')
                 base_name, ext = os.path.splitext(file_name)
                 ext = ext.lower()
 
-                # If the creation date is in the file name then this is considered the authoritative date
+                # First try to extract the creation timestamp from the file metadata
                 image_time = None
-                formats = [('%Y-%m-%d_%H%M%S', 17), ('%Y-%m-%d', 10), ('%Y-%m', 7), ('IMG_%Y%m%d_%H%M%S', 19), ('IMG-%Y%m%d', 12), ('VID_%Y%m%d', 12)]
-                for format, length in formats:
-                    try:
-                        image_time = datetime.datetime.strptime(file_name[:length], format)
-                        break
-                    except ValueError:
-                        pass
+                if ext in ['.jpg', '.jpeg']:
+                    image = JPEG()
+                    image.load(file_path)
+                    image_time = image.get_image_time()
+                elif ext in ['.mp4', '.m4v', '.mov', '.heic']:
+                    image = MP4()
+                    image.load(file_path)
+                    image_time = image.get_image_time()
+                elif ext == '.png':
+                    image = PNG()
+                    image.load(file_path)
+                    image_time = image.get_image_time()
+                elif ext in ['.tif', '.tiff']:
+                    image = TIFF()
+                    image.open(file_path)
+                    image.parse()
+                    image_time = image.get_image_time()
+                elif ext in ['.avi', '.mpg', '.mpeg']:
+                    image = AVI()
+                    image.load(file_path)
+                    image_time = image.get_image_time()
+                elif ext in ['.bmp']:   # These image files don't contain an embedded creation date
+                    pass
+                else:
+                    # Not a supported image type so skip this file
+                    continue
 
-                # Attempt to parse the creation date from the image file metadata
+                # Some tools put the creation date in the file name
                 if not image_time:
-                    if ext in ['.jpg', '.jpeg']:
-                        image = JPEG()
-                        image.load(image_path)
-                        image_time = image.get_image_time()
-                    elif ext in ['.mp4', '.m4v', '.mov', '.heic']:
-                        image = MP4()
-                        image.load(image_path)
-                        image_time = image.get_image_time()
-                    elif ext == '.png':
-                        image = PNG()
-                        image.load(image_path)
-                        image_time = image.get_image_time()
-                    elif ext in ['.tif', '.tiff']:
-                        image = TIFF()
-                        image.open(image_path)
-                        image.parse()
-                        image_time = image.get_image_time()
-                    elif ext in ['.avi', '.mpg', '.mpeg']:
-                        image = AVI()
-                        image.load(image_path)
-                        image_time = image.get_image_time()
-                    elif ext in ['.bmp']:           # These image files don't contain an embedded creation date
-                        pass
-                    else:
-                        # Not a supported image type so skip file
-                        continue
+                    formats = [('%Y-%m-%d_%H%M%S', 17), ('%Y-%m-%d', 10), ('%Y-%m', 7), ('IMG_%Y%m%d_%H%M%S', 19), ('IMG-%Y%m%d', 12), ('VID_%Y%m%d', 12)]
+                    for format, length in formats:
+                        try:
+                            image_time = datetime.datetime.strptime(file_name[:length], format)
+                            break
+                        except ValueError:
+                            pass
 
-                # Last resort; use file modification time as the image time
+                # As a last resort use the file modification time as the creation timestamp
                 if not image_time:
-                    image_time = datetime.datetime.fromtimestamp(os.path.getmtime(image_path))
+                    image_time = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
 
-                # add to list of located image files
-                image_files.append((image_path, image_time))
+                # add to list of files to move
+                image_files.append((file_path, image_time))
 
-        # Move image files
-        image_files.sort(key=lambda x: x[1])       # sort on timestamp
+        # Move files to destination folder
+        image_files.sort(key=lambda x: x[1])       # sort on timestamp so files are moved in a seemingly logical order
         for image_path, image_time in image_files:
 
-            # Checksum file; skip if already in collection
+            # Checksum file; skip if already in destination
             with open(image_path, 'rb') as f:
-                file_checksum = hashlib.sha256(f.read()).digest()
-            if file_checksum in collection_checksums:
+                checksum = hashlib.sha256(f.read()).digest()
+            if checksum in destination_checksums:
+                print('Duplicate file found: {0} same as {1} (skipping)'.format(image_path, destination_checksums[checksum]))
                 continue
-            collection_checksums[file_checksum] = image_path
+            destination_checksums[checksum] = image_path
 
-            # Create destination path
+            # Generate full path for destination file
             file_folder, file_name = os.path.split(image_path)
             base_name, ext = os.path.splitext(file_name)
             ext = ext.lower()
-            if ext == '.jpeg': ext = '.jpg'
-            if ext == '.tiff': ext = '.tif'
-            checksum_hex = file_checksum[0:10].hex()
+            if ext == '.jpeg':
+                ext = '.jpg'
+            if ext == '.tiff':
+                ext = '.tif'
+            checksum_hex = checksum[0:10].hex()
             dst_name = '{0}-{1:02}-{2:02}_{3:02}{4:02}{5:02}_{6}'.format(image_time.year, image_time.month, image_time.day, image_time.hour, image_time.minute, image_time.second, checksum_hex)
-            dst_path = os.path.join(collection_path, str(image_time.year), '{0}-{1:02}'.format(image_time.year, image_time.month))
+            dst_path = os.path.join(destination_path, str(image_time.year), '{0}-{1:02}'.format(image_time.year, image_time.month))
             dst = os.path.join(dst_path, dst_name + ext).replace('\\', '/')
 
-            # If file is already in correct place then skip
+            # If file is already in correct place then skip (can occur if destination path is also used as an input)
             if image_path == dst:
                 continue
 
@@ -728,12 +748,3 @@ if __name__ == '__main__':
                 shutil.move(image_path, dst)
             except PermissionError:
                 print('Failed to move {0}'.format(image_path))
-
-    # Remove empty folders from collection
-    empty_folders = []
-    for path, folders, files in os.walk(collection_path):
-        if len(folders) + len(files) == 0:
-            empty_folders.append(path)
-    for folder in empty_folders:
-        print('Removing empty folder ' + folder)
-        os.rmdir(folder)
