@@ -748,3 +748,13 @@ if __name__ == '__main__':
                 shutil.move(image_path, dst)
             except PermissionError:
                 print('Failed to move {0}'.format(image_path))
+
+        # Delete empty folders from source path
+        for path, folders, files in os.walk(source_path, topdown=False):
+            if len(files) + len(folders) == 0:
+                try:
+                    os.rmdir(path)
+                    print(f'removed folder {path}')
+                except OSError:
+                    print(f'failed to remove folder {path}')
+
